@@ -111,6 +111,8 @@ const clickablePoints = extract((state) => {
     "treeitem",
   ];
 
+  const FORM_CONTROL_TAGS = ["button", "input", "textarea"];
+
   type ClickTarget = {
     name: string;
     content: string;
@@ -208,9 +210,12 @@ const clickablePoints = extract((state) => {
   }
 
   // Buttons, inputs, textareas, labels
+  const formControlsSelector = FORM_CONTROL_TAGS.map(
+    (tag) => `${tag}:not(:disabled)`,
+  ).join(",");
   for (const element of queryAll(
     state.document.body,
-    "button,input,textarea,label[for]",
+    `${formControlsSelector},label[for]`,
   )) {
     if (added.has(element)) continue;
     // We require visibility except for input elements, which are often hidden and overlayed with custom styling.
@@ -218,6 +223,11 @@ const clickablePoints = extract((state) => {
 
     if (element instanceof HTMLInputElement && element.type === "file") {
       continue;
+    }
+
+    if (element instanceof HTMLLabelElement) {
+      const control = element.control;
+      if (control && control.matches(":disabled")) continue;
     }
 
     const point = clickablePoint(element);
