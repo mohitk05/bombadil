@@ -1,8 +1,10 @@
+use std::time::{Duration, SystemTime};
 use std::{collections::VecDeque, path::PathBuf, process::exit};
 
 use anyhow::{Result, anyhow, bail};
 use bombadil::runner::Runner;
 use bombadil::specification::verifier::Specification;
+use bombadil_schema::Time;
 use bombadil_terminal::driver::{Size, TerminalAction, TerminalDriver};
 use bombadil_terminal::trace::{TerminalTraceEntry, TraceWriter};
 use bombadil_terminal::{TerminalStrategy, TerminalTestMode};
@@ -10,9 +12,13 @@ use tempfile::TempDir;
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
-const DEFAULT_COLUMNS: u16 = 100;
-const DEFAULT_ROWS: u16 = 40;
-const MAX_SCROLLBACK: usize = 1_000;
+use crate::duration;
+
+mod defaults {
+    pub const COLUMNS: u16 = 100;
+    pub const ROWS: u16 = 40;
+    pub const SCROLLBACK_LINES_MAX: u16 = 100;
+}
 
 #[derive(clap::Subcommand)]
 pub enum Command {
@@ -23,12 +29,22 @@ pub enum Command {
         /// default terminal specification yet.
         #[arg(long = "specification")]
         specification_file: PathBuf,
+        /// Whether to exit the test when first failing property is found (useful in development and CI)
+        #[arg(long)]
+        exit_on_violation: bool,
+        /// Maximum time to run the test. Accepts a number with a unit suffix:
+        /// s (seconds), m (minutes), h (hours), or d (days). Examples: 30s, 5m, 2h, 1d.
+        #[arg(long, value_parser = duration::parse_duration)]
+        time_limit: Option<Duration>,
         /// Terminal columns at startup
-        #[arg(long, default_value_t = DEFAULT_COLUMNS)]
+        #[arg(long, default_value_t = defaults::COLUMNS)]
         columns: u16,
         /// Terminal rows at startup
-        #[arg(long, default_value_t = DEFAULT_ROWS)]
+        #[arg(long, default_value_t = defaults::ROWS)]
         rows: u16,
+        /// Maximum line count to keep in scrollback buffer
+        #[arg(long, default_value_t = defaults::SCROLLBACK_LINES_MAX)]
+        scrollback_lines_max: u16,
         /// Where to store output data (trace.jsonl). Defaults to a
         /// fresh temporary directory.
         #[arg(long)]
@@ -49,88 +65,86 @@ pub async fn run(command: Command) {
     match command {
         Command::Test {
             specification_file,
+            exit_on_violation,
+            time_limit,
             columns,
             rows,
+            scrollback_lines_max,
             output_path,
             reproduce,
             command,
         } => {
-            if let Err(error) = run_test(
-                specification_file,
-                Size { columns, rows },
-                output_path,
-                reproduce,
-                &command,
-            )
-            .await
-            {
+            let run_test = async || -> Result<()> {
+                let (program, args) = match &command[..] {
+                    [program, args @ ..] => (program.as_str(), args),
+                    _ => bail!("expected `<program> [args...]` after `--`"),
+                };
+
+                // Prepend "./" for relative paths that don't already start with "."
+                // so the bundler treats them as paths rather than bare specifiers.
+                let specification_file = if specification_file.is_relative()
+                    && !specification_file.starts_with(".")
+                {
+                    PathBuf::from(".").join(specification_file)
+                } else {
+                    specification_file
+                };
+
+                let specification = Specification {
+                    module_specifier: specification_file.display().to_string(),
+                };
+
+                let output_path = resolve_output_path(output_path)?;
+                let writer =
+                    TraceWriter::initialize(output_path.clone()).await?;
+
+                let mode = match reproduce {
+                    Some(path) => TerminalTestMode::Reproduce(
+                        load_reproduce_actions(&path).await?,
+                    ),
+                    None => TerminalTestMode::RandomWalk,
+                };
+
+                let (driver, verifier) = TerminalDriver::launch(
+                    specification,
+                    Size { columns, rows },
+                    scrollback_lines_max as usize,
+                    program,
+                    args,
+                )
+                .await?;
+
+                let test_start = SystemTime::now();
+                let deadline = time_limit.map(|d| test_start + d);
+
+                let runner = Runner::new(driver, verifier);
+                let mut strategy = TerminalStrategy {
+                    mode,
+                    writer: Some(writer),
+                    test_start: Some(Time::from_system_time(test_start)),
+                    violations_count: 0,
+                    exit_on_violation,
+                    deadline,
+                };
+                let _ = runner.run(&mut strategy).await?;
+
+                println!("\nTrace written to: {}", output_path.display());
+
+                if strategy.violations_count > 0 {
+                    bail!(
+                        "{} violation(s) reported",
+                        strategy.violations_count
+                    );
+                }
+                Ok(())
+            };
+
+            if let Err(error) = run_test().await {
                 eprintln!("\n\nterminal test failed: {error}");
                 exit(1);
             }
         }
     }
-}
-
-async fn run_test(
-    specification_file: PathBuf,
-    size: Size,
-    output_path: Option<PathBuf>,
-    reproduce: Option<PathBuf>,
-    command: &[String],
-) -> Result<()> {
-    let (program, args) = match command {
-        [program, args @ ..] => (program.as_str(), args),
-        _ => bail!("expected `<program> [args...]` after `--`"),
-    };
-
-    // Prepend "./" for relative paths that don't already start with "."
-    // so the bundler treats them as paths rather than bare specifiers.
-    let specification_file = if specification_file.is_relative()
-        && !specification_file.starts_with(".")
-    {
-        PathBuf::from(".").join(specification_file)
-    } else {
-        specification_file
-    };
-
-    let specification = Specification {
-        module_specifier: specification_file.display().to_string(),
-    };
-
-    let output_path = resolve_output_path(output_path)?;
-    let writer = TraceWriter::initialize(output_path.clone()).await?;
-
-    let mode = match reproduce {
-        Some(path) => {
-            TerminalTestMode::Reproduce(load_reproduce_actions(&path).await?)
-        }
-        None => TerminalTestMode::RandomWalk,
-    };
-
-    let (driver, verifier) = TerminalDriver::launch(
-        specification,
-        size,
-        MAX_SCROLLBACK,
-        program,
-        args,
-    )
-    .await?;
-
-    let runner = Runner::new(driver, verifier);
-    let mut strategy = TerminalStrategy {
-        mode,
-        writer: Some(writer),
-        test_start: None,
-        violations_count: 0,
-    };
-    let _ = runner.run(&mut strategy).await?;
-
-    println!("\nTrace written to: {}", output_path.display());
-
-    if strategy.violations_count > 0 {
-        bail!("{} violation(s) reported", strategy.violations_count);
-    }
-    Ok(())
 }
 
 fn resolve_output_path(output_path: Option<PathBuf>) -> Result<PathBuf> {
