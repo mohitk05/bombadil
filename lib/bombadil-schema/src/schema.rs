@@ -136,6 +136,16 @@ pub enum BrowserAction {
         selector: String,
         files: Vec<String>,
     },
+    MouseDrag {
+        from: Point,
+        to: Point,
+        steps: u8,
+        delay_millis: u64,
+    },
+    SetViewport {
+        width: u16,
+        height: u16,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
