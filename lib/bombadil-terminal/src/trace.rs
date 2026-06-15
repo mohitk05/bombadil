@@ -63,8 +63,8 @@ fn write_entry(
     write_grid(buffer, &state.scrollback)?;
     buffer.extend_from_slice(b",\"scroll_offset\":");
     json::to_writer(&mut *buffer, &state.scroll_offset)?;
-    buffer.extend_from_slice(b",\"terminated\":");
-    json::to_writer(&mut *buffer, &state.terminated)?;
+    buffer.extend_from_slice(b",\"exit_status\":");
+    json::to_writer(&mut *buffer, &state.exit_status)?;
     buffer.extend_from_slice(b"},\"snapshots\":");
     json::to_writer(&mut *buffer, snapshots)?;
     buffer.extend_from_slice(b",\"violations\":");
@@ -281,7 +281,7 @@ mod tests {
                 ..size
             }),
             scroll_offset: 7,
-            terminated: false,
+            exit_status: None,
             last_action: None,
         };
         let action = TerminalAction::TypeText {
@@ -300,7 +300,7 @@ mod tests {
                 grid: state.grid.clone(),
                 scrollback: state.scrollback.clone(),
                 scroll_offset: state.scroll_offset,
-                terminated: state.terminated,
+                exit_status: state.exit_status,
             },
             snapshots: vec![],
             violations: vec![],
