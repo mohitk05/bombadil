@@ -270,6 +270,7 @@ pub fn Timeline(
                         height={TIMESCALE_HEIGHT}
                         series={data.series_violations.clone()}
                         x_max={x_max}
+                        x_max_time={Duration::from_micros(x_max as u64)}
                         />
                 </g>
 
@@ -380,6 +381,7 @@ pub struct TimescaleProps {
     width: f64,
     height: f64,
     x_max: f64,
+    x_max_time: Duration,
 }
 
 #[component]
@@ -395,12 +397,11 @@ pub fn Timescale(props: &TimescaleProps) -> Html {
                     html!(
                         <>
                             <polyline class="border" points={format!(" {x},{top} {x},{bottom} ", top=TIMESCALE_VIOLATIONS_HEIGHT, bottom=TIMESCALE_VIOLATIONS_HEIGHT + TIMESCALE_TICK_HEIGHT)} />
-                            // TODO: pass in Durations rather than f64 for time
                             <text
                                 class="time-label"
                                 x={format!("{x}")}
                                 y={format!("{top}", top=TIMESCALE_VIOLATIONS_HEIGHT + TIMESCALE_TICK_HEIGHT * 2.0 + TIMESCALE_TEXT_HEIGHT / 2.0)}>
-                                {format_duration(Duration::from_millis((props.x_max * tick) as u64), FormatDurationOptions { include_millis: false })}
+                                {format_duration(props.x_max_time.mul_f64(*tick), FormatDurationOptions { include_millis: false })}
                             </text>
                         </>
                     )
