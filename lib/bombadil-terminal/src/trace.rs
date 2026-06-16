@@ -121,12 +121,25 @@ fn write_grid(buffer: &mut Vec<u8>, grid: &TerminalGrid) -> Result<()> {
 const PENDING_ENTRIES_MAX: usize = 32;
 
 impl TraceWriter {
-    pub fn initialize(root_path: PathBuf) -> Result<Self> {
+    pub fn initialize(
+        root_path: PathBuf,
+        output_path_overwrite: bool,
+    ) -> Result<Self> {
         std::fs::create_dir_all(&root_path)?;
         let trace_path = root_path.join("trace.jsonl");
+        if trace_path.try_exists()? {
+            if !output_path_overwrite {
+                anyhow::bail!(
+                    "trace.jsonl already exists at {}. \
+                     Use --output-path-overwrite to overwrite, or choose a different --output-path.",
+                    trace_path.display(),
+                );
+            }
+            std::fs::remove_file(&trace_path)?;
+        }
         let trace_file = File::options()
-            .append(true)
-            .create(true)
+            .write(true)
+            .create_new(true)
             .open(&trace_path)?;
         log::info!("storing trace in {}", root_path.display());
         let (sender, receiver) = mpsc::sync_channel(PENDING_ENTRIES_MAX);
