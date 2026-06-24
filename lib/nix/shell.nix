@@ -44,7 +44,7 @@ let
       inherit version;
       src = pkgs.fetchurl {
         url = "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/${version}/wasm-bindgen-${version}-${asset}.tar.gz";
-        hash = "sha256-Idge90FKClhYYaYOpK4reXDsyu0J1KTgX4vEsVmCfeo=";
+        hash = "sha256-K0b8Aaai9byyTlxekq3yFqOO9PV1QrUpG0T6NPdqxtI=";
       };
       nativeBuildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux [
         pkgs.autoPatchelfHook

@@ -19,26 +19,27 @@ export type Action<Number = number, String = string> =
   | "Wait"
   | { Click: { fingerprint: Fingerprint; point: Point<Number> } }
   | {
-    DoubleClick: {
-      fingerprint: Fingerprint;
-      point: Point<Number>;
-      delayMillis: Range;
-    };
-  }
+      DoubleClick: {
+        fingerprint: Fingerprint;
+        point: Point<Number>;
+        delayMillis: Range;
+      };
+    }
   | { TypeText: { text: String; delayMillis: Range } }
   | { PressKey: { code: number } }
   | { ScrollUp: { origin: Point; distance: Number } }
   | { ScrollDown: { origin: Point; distance: Number } }
   | { SetFileInputFiles: { selector: string; files: string[] } }
   | {
-    MouseDrag: {
-      from: Point;
-      to: Point;
-      steps: Number;
-      delayMillis: Number;
-    };
-  }
-  | { SetViewport: { width: Number; height: Number } };
+      MouseDrag: {
+        from: Point;
+        to: Point;
+        steps: Number;
+        delayMillis: Number;
+      };
+    }
+  | { SetViewport: { width: Number; height: Number } }
+  | { Custom: { name: string } };
 
 export type ActionTemplate = Action<Range, StringGenerator>;
 
@@ -64,8 +65,8 @@ export interface State {
         value: unknown;
       } | null;
       stacktrace:
-      | { name: string; line: number; column: number; url: string }[]
-      | null;
+        | { name: string; line: number; column: number; url: string }[]
+        | null;
     }[];
   };
   console: ConsoleEntry[];
@@ -87,9 +88,7 @@ export type ConsoleEntry = {
 // Specifically-typed wrappers over the generic factory functions in
 // `@antithesishq/bombadil`.
 
-export function extract<T extends JSON>(
-  query: (state: State) => T,
-): Cell<T> {
+export function extract<T extends JSON>(query: (state: State) => T): Cell<T> {
   return bombadil.extract<State, T>(query);
 }
 
@@ -119,7 +118,7 @@ export type Fingerprint = {
   inputType: string | null;
   textContent: string | null;
   structuralPath: string | null;
-}
+};
 
 export function getFingerprint(el: Element): Fingerprint {
   const tag = el.tagName.toLowerCase();
@@ -136,7 +135,9 @@ export function getFingerprint(el: Element): Fingerprint {
   const accessibleName =
     el.getAttribute("aria-label") ??
     (el.getAttribute("aria-labelledby")
-      ? document.getElementById(el.getAttribute("aria-labelledby")!)?.textContent?.trim() ?? null
+      ? document
+          .getElementById(el.getAttribute("aria-labelledby")!)
+          ?.textContent?.trim()
       : null) ??
     el.getAttribute("title");
 
@@ -150,7 +151,15 @@ export function getFingerprint(el: Element): Fingerprint {
     rawText && rawText.length > 0 && rawText.length <= 200 ? rawText : null;
 
   const hasStrongIdentifier =
-    testId || id || role || accessibleName || href || nameAttr || placeholder || inputType || textContent;
+    testId ||
+    id ||
+    role ||
+    accessibleName ||
+    href ||
+    nameAttr ||
+    placeholder ||
+    inputType ||
+    textContent;
 
   const structuralPath = hasStrongIdentifier ? null : getStructuralPath(el);
 
@@ -178,7 +187,7 @@ function getStructuralPath(el: Element): string {
     if (!parent) break;
 
     const siblings = Array.from(parent.children).filter(
-      (c) => c.tagName === current!.tagName
+      (c) => c.tagName === current!.tagName,
     );
     const index = siblings.indexOf(current as HTMLElement);
     const suffix = siblings.length > 1 ? `[${index}]` : "";
@@ -187,4 +196,14 @@ function getStructuralPath(el: Element): string {
   }
 
   return parts.join(" > ");
+}
+
+export function registerCustomAction(
+  name: string,
+  scriptFunction: (state: Pick<State, "document" | "window">) => void,
+) {
+  bombadil.registerCustomAction<Pick<State, "document" | "window">>(
+    name,
+    scriptFunction,
+  );
 }

@@ -277,6 +277,10 @@ impl Extractors {
         self.instances.get(index)
     }
 
+    pub fn len(&self) -> usize {
+        self.instances.len()
+    }
+
     pub fn update_from_snapshots(
         &self,
         snapshots: &[Snapshot],
